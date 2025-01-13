@@ -6,6 +6,8 @@ from rapidfuzz import fuzz
 import pandas as pd
 import json
 
+# Translations from French to English
+
 translations = {
     'Amour': 'Love',
     'Art': 'Art',
@@ -41,10 +43,13 @@ translations = {
     'Vivre ensemble': 'Living Together'
 }
 
+# Get dict of themes and questions
+
 def clean_question(question):
     if pd.isna(question):
         return ''
     return question.replace('\xa0?\xa0', '').replace(' ?', '').replace('?', '').replace('\r\n', ' ')
+
 
 def get_theme(theme_dataframe):
     """
@@ -69,6 +74,8 @@ def get_theme(theme_dataframe):
 
 
 
+
+# create database in json format
 
 
 def normalize_text(text):
@@ -229,7 +236,7 @@ def chunk_all_docx_in_folder(folder_path, sentence_category_dict, threshold=85):
 
 
 
-
+# save and load database
 
 
 def save_dict_to_json(data_dict, file_path):
@@ -244,3 +251,21 @@ def load_dict_from_json(file_path):
         data = json.load(f)
     # Convert lists back to sets
     return {key: set(value) for key, value in data.items()}
+
+
+
+
+if __name__ == "__main__":
+
+    themes = pd.read_csv('data/themes.csv')
+    themes = themes.drop_duplicates(subset='QUESTION')
+    themes_dict = get_theme(themes)
+
+    folder_path = "data/Extraits"
+    threshold = 85
+
+    merged_dict = chunk_all_docx_in_folder(folder_path, themes_dict, threshold=threshold)
+
+    save_path = "data/M0A_train_data.json"
+
+    save_dict_to_json(merged_dict, save_path)
