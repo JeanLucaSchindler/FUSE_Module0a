@@ -9,7 +9,7 @@ from sklearn.metrics import jaccard_score, hamming_loss
 
 # Load environment variables
 load_dotenv()
-openai.api_key = os.getenv('OPENAI_API_KEY')
+openai.api_key = os.getenv('FUSE_OPEN_AI_KEY')
 
 
 def get_theme_allocation(page_text, system_instructions):
@@ -63,7 +63,7 @@ def sort_list_by_column(data):
     return "[" + ", ".join([f"{key}:{value}" for key, value in sorted_entries]) + "]"
 
 
-def select_random_keys(dictionary, n=50):
+def select_random_keys(dictionary, n=100, seed=22):
     """
     Randomly selects `n` keys from the given dictionary.
 
@@ -76,6 +76,9 @@ def select_random_keys(dictionary, n=50):
     """
     if len(dictionary) < n:
         raise ValueError("The dictionary contains fewer keys than the number to select.")
+
+    # Set the seed for reproducibility
+    random.seed(seed)
 
     return random.sample(list(dictionary.keys()), n)
 
@@ -182,12 +185,15 @@ def evaluate_metrics(y_true, y_pred):
         y_pred = np.array(y_pred)
 
     # Compute Jaccard Index (macro-average)
-    jaccard_avg = jaccard_score(y_true, y_pred)
+    jaccard_avg = jaccard_score(y_true, y_pred, average='samples')
 
     # Compute Hamming Loss
     hamming = hamming_loss(y_true, y_pred)
 
     return jaccard_avg, hamming
+
+import numpy as np
+from scipy.stats import t
 
 def personalized_metric(y_true, y_pred):
     """
@@ -203,7 +209,7 @@ def personalized_metric(y_true, y_pred):
     y_pred (np.ndarray): Predicted binary label matrix (shape: n_samples x n_classes).
 
     Returns:
-    list: A list of personalized scores for each sample.
+    tuple: mean_score, std_dev, (lower_95, upper_95), scores
     """
     if not isinstance(y_true, np.ndarray):
         y_true = np.array(y_true)
@@ -225,7 +231,19 @@ def personalized_metric(y_true, y_pred):
 
         scores.append(score)
 
-    return np.mean(scores)
+    scores = np.array(scores)
+    mean_score = np.mean(scores)
+    std_dev = np.std(scores, ddof=1)
+    n = len(scores)
+
+    # Calculate the 95% confidence interval
+    t_critical = t.ppf(0.975, df=n-1)  # Two-tailed critical value for 95% CI
+    margin_of_error = t_critical * (std_dev / np.sqrt(n))
+    lower_95 = mean_score - margin_of_error
+    upper_95 = mean_score + margin_of_error
+
+    return mean_score, std_dev, (lower_95, upper_95), scores
+
 
 
 def create_metrics_db(db_name):
@@ -271,3 +289,60 @@ def prompt_metrics_save(prompt_name, prompt, jaccard_index, hamming_loss, person
 
     connection.commit()
     connection.close()
+
+
+def add_or_update_column(db_name, table_name, column_name, type, values_list):
+    """
+    Adds a new column to an SQLite table if it doesn't exist, or updates it if it does.
+
+    Parameters:
+    db_name (str): The SQLite database file name.
+    table_name (str): The name of the table to modify.
+    column_name (str): The name of the column to add or update.
+    values_list (list): A list of values to populate the column, one value per row.
+
+    Returns:
+    None
+    """
+    # Connect to SQLite database
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+
+    try:
+        # Step 1: Check if the column already exists
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        columns = [info[1] for info in cursor.fetchall()]
+
+        if column_name not in columns:
+            # Add the column if it doesn't exist
+            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {type}")
+            print(f"Column '{column_name}' added successfully.")
+        else:
+            print(f"Column '{column_name}' already exists. Updating its values.")
+
+        # Step 2: Fetch all row IDs in the table
+        cursor.execute(f"SELECT ROWID FROM {table_name}")
+        row_ids = cursor.fetchall()
+
+        # Check if the number of rows matches the length of the values list
+        if len(row_ids) != len(values_list):
+            raise ValueError("Length of values_list does not match the number of rows in the table.")
+
+        # Step 3: Populate or update the column row by row
+        for row_id, value in zip(row_ids, values_list):
+            cursor.execute(f"""
+                UPDATE {table_name}
+                SET {column_name} = ?
+                WHERE ROWID = ?
+            """, (value, row_id[0]))
+
+        # Commit the changes
+        conn.commit()
+        print(f"Column '{column_name}' populated/updated successfully.")
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        conn.rollback()
+    finally:
+        # Close the connection
+        conn.close()
