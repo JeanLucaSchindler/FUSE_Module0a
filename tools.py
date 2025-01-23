@@ -2,20 +2,20 @@ import sqlite3
 import random
 import PyPDF2
 from dotenv import load_dotenv
-import openai
 import os
 import numpy as np
 from sklearn.metrics import jaccard_score, hamming_loss
 
-# Load environment variables
-load_dotenv()
-openai.api_key = os.getenv('FUSE_OPEN_AI_KEY')
+from openai import OpenAI
+
+client = OpenAI(
+    api_key=os.environ.get("FUSE_OPEN_AI_KEY"))
 
 
-def get_theme_allocation(page_text, system_instructions):
+def get_theme_allocation(page_text, system_instructions, model='gpt-4'):
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
+        response = client.chat.completions.create(
+            model=model,
             messages=[
                 {"role": "system", "content": system_instructions},
                 {"role": "user", "content": page_text}
@@ -219,15 +219,15 @@ def personalized_metric(y_true, y_pred):
     scores = []
 
     for true_row, pred_row in zip(y_true, y_pred):
-        score = 100
 
-        # Count missing true themes
-        missing_themes = np.sum((true_row == 1) & (pred_row == 0))
-        score -= missing_themes * 25
+        # calculate percentage of correctly predicted themes
+        correct_themes = np.sum((true_row == 1) & (pred_row == 1))
+        total_themes = np.sum(true_row)
+        score = 100 * (correct_themes / total_themes)
 
         # Count incorrect predicted themes
         incorrect_themes = np.sum((true_row == 0) & (pred_row == 1))
-        score -= incorrect_themes * 15
+        score -= incorrect_themes * 5
 
         scores.append(score)
 
