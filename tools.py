@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import os
 import numpy as np
 from sklearn.metrics import jaccard_score, hamming_loss
+import pandas as pd
 
 from openai import OpenAI
 
@@ -12,7 +13,7 @@ client = OpenAI(
     api_key=os.environ.get("FUSE_OPEN_AI_KEY"))
 
 
-def get_theme_allocation(page_text, system_instructions, model='gpt-4'):
+def get_theme_allocation(page_text, system_instructions, model):
     try:
         response = client.chat.completions.create(
             model=model,
@@ -199,11 +200,6 @@ def personalized_metric(y_true, y_pred):
     """
     Calculate a personalized metric for multilabel classification.
 
-    Scoring:
-    - Start with 100 points.
-    - Subtract 25 points per missing true theme.
-    - Subtract 15 points per incorrect theme in predictions.
-
     Parameters:
     y_true (np.ndarray): Ground truth binary label matrix (shape: n_samples x n_classes).
     y_pred (np.ndarray): Predicted binary label matrix (shape: n_samples x n_classes).
@@ -346,3 +342,11 @@ def add_or_update_column(db_name, table_name, column_name, type, values_list):
     finally:
         # Close the connection
         conn.close()
+
+
+def import_table_from_sqlite(db_name, table_name):
+    conn = sqlite3.connect(db_name)
+    df = pd.read_sql_query(f"SELECT prompt_name FROM {table_name}", conn)
+    conn.close()
+    # return a list of values in column
+    return list(df['prompt_name'].values)
